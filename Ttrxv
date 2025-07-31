@@ -1,0 +1,124 @@
+// ==UserScript==
+// @name         Khan Destroyer
+// @namespace    https://pt.khanacademy.org/
+// @match        https://pt.khanacademy.org/**
+// @grant        none
+// ==/UserScript==
+
+(function(){
+  'use strict';
+  let loadedPlugins = [];
+  console.clear();
+  const noop = () => {};
+  console.warn = console.error = window.debug = noop;
+
+  // Splash screen
+  const splashScreen = document.createElement('div');
+  Object.assign(splashScreen.style, {
+    position: 'fixed', top: 0, left: 0,
+    width: '100%', height: '100%',
+    background: '#000', color: '#fff',
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    fontSize: '30px', fontFamily: 'MuseoSans,sans-serif',
+    zIndex: '9999', opacity: 0, transition: 'opacity .5s ease'
+  });
+  splashScreen.innerHTML = '<span style="color:white;">KHAN</span><span style="color:#72ff72;">DESTROYER</span>';
+  document.body.appendChild(splashScreen);
+  setTimeout(()=>splashScreen.style.opacity=1,10);
+
+  // Helpers
+  class EventEmitter {
+    constructor(){ this.events = {} }
+    on(e,h){ (Array.isArray(e)?e:[e]).forEach(ev=>{(this.events[ev]=this.events[ev]||[]).push(h)}) }
+    off(e,h){ (Array.isArray(e)?e:[e]).forEach(ev=>{this.events[ev]&&(this.events[ev]=this.events[ev].filter(fn=>fn!==h))}) }
+    emit(e,...args){ this.events[e]?.forEach(fn=>fn(...args)) }
+    once(e,h){ const w=(...a)=>{h(...a);this.off(e,w)};this.on(e,w) }
+  }
+  const plppdo = new EventEmitter();
+  new MutationObserver(muts=>muts.some(m=>m.type==='childList')&&plppdo.emit('domChanged'))
+    .observe(document.body,{childList:true,subtree:true});
+
+  const delay = ms => new Promise(r=>setTimeout(r,ms));
+  const findAndClick = s => document.querySelector(s)?.click();
+  function sendToast(text,d=5000){ Toastify({text,duration:d,gravity:'center',position:'center',stopOnFocus:true,style:{background:"#000"}}).showToast() }
+
+  async function hideSplash(){
+    splashScreen.style.opacity = 0;
+    setTimeout(()=>splashScreen.remove(),1000);
+  }
+
+  // Intercept fetch
+  function setupMain(){
+    const origFetch = window.fetch;
+    window.fetch = async (req,init) => {
+      let body;
+      if(req instanceof Request) body = await req.clone().text();
+      else if(init?.body) body = init.body;
+
+      if(body?.includes('"operationName":"updateUserVideoProgress"')){
+        try {
+          let o = JSON.parse(body);
+          if(o.variables?.input){
+            const s = o.variables.input.durationSeconds;
+            o.variables.input.secondsWatched = s;
+            o.variables.input.lastSecondWatched = s;
+            body = JSON.stringify(o);
+            if(req instanceof Request) req = new Request(req,{body});
+            else init.body = body;
+            sendToast("🔄｜Vídeo explorado.",1000);
+          }
+        } catch {}
+      }
+
+      const resp = await origFetch.apply(this,arguments);
+      try {
+        const clone = resp.clone(), txt = await clone.text(), o = JSON.parse(txt);
+        if(o?.data?.assessmentItem?.item?.itemData){
+          let d = JSON.parse(o.data.assessmentItem.item.itemData);
+          if(d.question.content[0]===d.question.content[0].toUpperCase()){
+            d.answerArea={calculator:false,chi2Table:false,periodicTable:false,tTable:false,zTable:false};
+            d.question.content="Desenvolvido por: Snow? [[☃ radio 1]]";
+            d.question.widgets={"radio 1":{type:"radio",options:{choices:[{content:"🤍",correct:true}]}}};
+            o.data.assessmentItem.item.itemData = JSON.stringify(d);
+            return new Response(JSON.stringify(o),{status:resp.status,statusText:resp.statusText,headers:resp.headers});
+          }
+        }
+      } catch {}
+      return resp;
+    };
+
+    // Auto-click loop
+    (async ()=>{
+      const sels = [
+        `[data-testid="ícone-de-escolha__biblioteca-ícone-de-escolha"]`,
+        `[data-testid="exercício-verificação-resposta"]`,
+        `[data-testid="exercício-próxima-pergunta"]`,
+        `._1udzurba`, `._awve9b`
+      ];
+      window.khanwareDominates = true;
+      while(window.khanwareDominates){
+        for(const sel of sels){
+          findAndClick(sel);
+          const el = document.querySelector(`${sel}>div`);
+          if(el?.innerText === "Mostrar resumo") sendToast("🎉｜Exercício concluído!",3000);
+        }
+        await delay(1500);
+      }
+    })();
+  }
+
+  // Sequência de carregamento
+  (async function init(){
+    // Dark mode + Toastify
+    await Promise.all([
+      fetch('https://cdn.jsdelivr.net/npm/darkreader@4.9.92/darkreader.min.js').then(r=>r.text()).then(eval),
+      new Promise(r=>{ const l=document.createElement('link'); l.rel='stylesheet'; l.href='https://cdn.jsdelivr.net/npm/toastify-js/src/toastify.min.css'; l.onload=r; document.head.appendChild(l); }),
+      fetch('https://cdn.jsdelivr.net/npm/toastify-js').then(r=>r.text()).then(eval)
+    ]);
+    await delay(2000);
+    await hideSplash();
+    setupMain();
+    sendToast("🤍｜Khan Destroyer iniciado!",2000);
+    console.clear();
+  })();
+})();
